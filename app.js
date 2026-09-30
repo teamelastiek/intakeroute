@@ -1,33 +1,33 @@
 "use strict";
 
 const DEFAULT_PLAN = {phases:[
-  {id:"beschikking", name:"Beschikking en dossier", when:"dag 0–7", steps:[
+  {id:"beschikking", name:"Beschikking en dossier", steps:[
     {id:"beschikking", name:"Beschikking ontvangen van de rechtbank", hint:"Datum van de beschikking vastgelegd; hier start de termijn voor de boedelbeschrijving"},
     {id:"beschikking-check", name:"Beschikking gecontroleerd", hint:"Juiste gegevens, omvang van het bewind, eventueel mentorschap of curatele"},
     {id:"ccbr", name:"Inschrijving in het curatele- en bewindregister gecontroleerd"},
     {id:"onview", name:"Dossier aangemaakt in OnView", hint:"Cliëntgegevens, beschikking en contactpersonen ingevoerd"},
     {id:"intake-gepland", name:"Intakegesprek gepland", hint:"Cliënt en eventueel netwerk of verwijzer geïnformeerd"}
   ]},
-  {id:"intake", name:"Intake met cliënt", when:"week 1–2", steps:[
+  {id:"intake", name:"Intake met cliënt", steps:[
     {id:"intake", name:"Intakegesprek gevoerd", hint:"Thuisbezoek of op kantoor"},
     {id:"overeenkomst", name:"Cliëntovereenkomst en huisregels getekend"},
     {id:"machtigingen", name:"Machtigingen geregeld", hint:"Onder meer DigiD-machtiging en volmachten"},
     {id:"documenten", name:"Documenten verzameld", hint:"ID, loonstroken, huurcontract, polissen, brieven van schuldeisers, bankafschriften"},
     {id:"passen", name:"Oude bankpassen en toegang internetbankieren ingeleverd of geblokkeerd"}
   ]},
-  {id:"rekeningen", name:"Rekeningen", when:"week 1–3", steps:[
+  {id:"rekeningen", name:"Rekeningen", steps:[
     {id:"banken", name:"Bewind gemeld bij alle banken", hint:"Bestaande rekeningen onder bewind geplaatst"},
     {id:"beheerrekening", name:"Beheerrekening geopend"},
     {id:"leefgeldrekening", name:"Leefgeldrekening geopend en pas bij cliënt"},
     {id:"saldi", name:"Saldi per datum van de beschikking opgevraagd", hint:"Nodig voor de boedelbeschrijving"}
   ]},
-  {id:"inkomsten", name:"Inkomsten omleggen", when:"week 2–6", steps:[
+  {id:"inkomsten", name:"Inkomsten omleggen", steps:[
     {id:"inkomsten-aangeschreven", name:"Inkomstenbronnen aangeschreven", hint:"Werkgever, UWV, SVB of gemeente"},
     {id:"inkomsten-ontvangen", name:"Eerste inkomsten ontvangen op de beheerrekening"},
     {id:"toeslagen", name:"Toeslagen gecontroleerd en omgezet", hint:"Zorgtoeslag, huurtoeslag, kindgebonden budget"},
     {id:"belastingdienst", name:"Belastingdienst geregeld", hint:"Machtiging, openstaande aangiften en voorlopige aanslag"}
   ]},
-  {id:"vastelasten", name:"Vaste lasten en post", when:"week 2–6", steps:[
+  {id:"vastelasten", name:"Vaste lasten en post", steps:[
     {id:"post", name:"Post omgeleid naar kantoor"},
     {id:"verhuurder", name:"Verhuurder of hypotheekverstrekker aangeschreven"},
     {id:"zorgverzekeraar", name:"Zorgverzekeraar aangeschreven"},
@@ -35,7 +35,7 @@ const DEFAULT_PLAN = {phases:[
     {id:"gemeente", name:"Gemeentelijke belastingen en waterschap aangeschreven", hint:"Kwijtschelding aangevraagd waar dat kan"},
     {id:"verzekeringen", name:"Overige verzekeringen en abonnementen gecontroleerd"}
   ]},
-  {id:"schulden", name:"Schulden en boedel", when:"maand 1–3", steps:[
+  {id:"schulden", name:"Schulden en boedel", steps:[
     {id:"schuldeisers", name:"Schuldeisers aangeschreven", hint:"Bewind gemeld, opgave van vordering gevraagd"},
     {id:"schuldenoverzicht", name:"Schuldenoverzicht compleet"},
     {id:"beslagvrije-voet", name:"Beslagvrije voet gecontroleerd", hint:"Alleen bij beslag"},
@@ -43,7 +43,7 @@ const DEFAULT_PLAN = {phases:[
     {id:"boedel", name:"Boedelbeschrijving ingediend bij de rechtbank", hint:"Binnen drie maanden na de beschikking", deadlineDays:90},
     {id:"plan-van-aanpak", name:"Plan van aanpak opgesteld", hint:"Doelen voor de cliënt, zoals stabilisatie of schuldhulpverlening"}
   ]},
-  {id:"budgetplan", name:"Budgetplan", when:"maand 2–3", steps:[
+  {id:"budgetplan", name:"Budgetplan", steps:[
     {id:"concept", name:"Conceptbudgetplan opgesteld"},
     {id:"besproken", name:"Budgetplan besproken en getekend door cliënt"},
     {id:"reserveringen", name:"Reserveringen ingericht", hint:"Bijvoorbeeld eindafrekening energie en jaarlijkse kosten"},
@@ -121,15 +121,19 @@ function sortKey(d){ const dl = deadlinesOf(d); return dl.length ? Math.min(...d
 function sorted(list){ return list.slice().sort((a, b) => (sortKey(a) - sortKey(b)) || String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))); }
 function columns(){
   const list = visible();
-  const cols = plan.phases.map((ph, i) => ({name: ph.name, eyebrow: "Fase " + (i + 1) + (ph.when ? " · " + ph.when : ""), items: sorted(list.filter(d => currentPhase(d) === i))}));
+  const cols = plan.phases.map((ph, i) => ({name: ph.name, eyebrow: "Fase " + (i + 1), items: sorted(list.filter(d => currentPhase(d) === i))}));
   cols.push({name: "Budgetplan draait", eyebrow: "Afgerond", finish: true, items: sorted(list.filter(d => currentPhase(d) === -1))});
   return cols;
 }
 function meetingOrder(){ return columns().flatMap(c => c.items).filter(d => !d.archived).map(d => d.id); }
 
 /* ---------- pieces ---------- */
-function stripHtml(d){
-  return `<div class="strip" aria-hidden="true">${plan.phases.filter(p => p.steps.length).map(ph => `<span class="pgrp" style="--n:${ph.steps.length}">${ph.steps.map(s => `<i class="pip s-${stateOf(d, s.id)}"></i>`).join("")}</span>`).join("")}</div>`;
+// Eén balkje per fase, gevuld met klaar, n.v.t. en bezig.
+function phaseBar(d){
+  return `<div class="pbar" aria-hidden="true">${plan.phases.filter(p => p.steps.length).map(ph => {
+    const w = st => (ph.steps.filter(s => stateOf(d, s.id) === st).length / ph.steps.length * 100).toFixed(1) + "%";
+    return `<span class="pseg"><i class="k" style="width:${w("klaar")}"></i><i class="n" style="width:${w("nvt")}"></i><i class="b" style="width:${w("bezig")}"></i></span>`;
+  }).join("")}</div>`;
 }
 function routeHtml(d, opts = {}){
   const cur = curStep(d), isStatic = opts.static;
@@ -154,14 +158,16 @@ function peopleHtml(d){
   return p.join(" · ");
 }
 function cardHtml(d){
-  const pr = progress(d), dl = deadlinesOf(d), nx = curStep(d);
-  const chips = (d.example ? `<span class="chip ex">Voorbeeld</span>` : "") + dl.map(x => deadlineChip(x)).join("");
+  const pr = progress(d);
+  // Alleen termijnen die binnen 30 dagen vallen of verlopen zijn; de rest staat in het dossier.
+  const chips = deadlinesOf(d).filter(x => x.days <= 30).map(x => deadlineChip(x)).join("") + (d.archived ? `<span class="chip">Gearchiveerd</span>` : "");
+  const people = [d.bewindvoerder, d.assistent].filter(Boolean).join(" / ");
+  const meta = [d.dossiernummer, people].filter(Boolean).map(esc).join(" · ");
   return `<button type="button" class="card${d.archived ? " archived" : ""}" data-open="${esc(d.id)}">
-    <div class="card-top"><span class="mono muted">${esc(d.dossiernummer || "—")}</span><span>${chips}</span></div>
-    <div><h3>${esc(d.naam || "Naamloos dossier")}</h3>${peopleHtml(d) ? `<div class="people">${peopleHtml(d)}</div>` : ""}</div>
-    ${stripHtml(d)}
-    <div class="card-foot"><span class="next">${nx ? (stateOf(d, nx.id) === "bezig" ? "Wacht: " : "Volgende: ") + esc(nx.name) : "Alles afgerond"}</span><span class="pct">${pr.pct}%</span></div>
-    ${d.updatedAt ? `<div class="card-foot"><span>Bijgewerkt ${relDate(d.updatedAt)}${d.updatedBy ? " door " + esc(d.updatedBy) : ""}</span>${d.archived ? "<span>Gearchiveerd</span>" : ""}</div>` : ""}
+    <div class="card-top"><h3>${esc(d.naam || "Naamloos dossier")}</h3><span class="pct">${pr.pct}%</span></div>
+    ${meta ? `<div class="card-meta">${meta}</div>` : ""}
+    ${phaseBar(d)}
+    ${chips ? `<div class="chips">${chips}</div>` : ""}
   </button>`;
 }
 
@@ -203,9 +209,9 @@ function renderBoard(){
     return;
   }
   b.style.display = "";
-  b.innerHTML = columns().map(c => `<section class="column${c.finish ? " finish" : ""}" aria-label="${esc(c.name)}">
-    <div class="col-head"><div><div class="eyebrow">${esc(c.eyebrow)}</div><h2>${esc(c.name)}</h2></div><span class="count">${c.items.length}</span></div>
-    ${c.items.length ? c.items.map(cardHtml).join("") : `<div class="col-empty">Geen dossiers in deze fase</div>`}
+  b.innerHTML = columns().map(c => `<section class="lane${c.finish ? " finish" : ""}${c.items.length ? "" : " empty"}" aria-label="${esc(c.name)}">
+    <div class="lane-head"><div class="eyebrow">${esc(c.eyebrow)}</div><h2>${esc(c.name)} <span class="count">${c.items.length}</span></h2></div>
+    ${c.items.length ? `<div class="lane-cards">${c.items.map(cardHtml).join("")}</div>` : `<div class="lane-empty">Geen dossiers</div>`}
   </section>`).join("");
 }
 function renderAll(){
@@ -263,7 +269,7 @@ function dossierHtml(d, meeting){
 
   const list = plan.phases.filter(p => p.steps.length).map(p => {
     const done = p.steps.filter(s => isDone(stateOf(d, s.id))).length;
-    return `<section class="phase"><div class="phase-h"><h3>${esc(p.name)}${p.when ? ` <span class="when">${esc(p.when)}</span>` : ""}</h3><span class="mono muted">${done}/${p.steps.length}</span></div><ol class="steps">${p.steps.map(s => {
+    return `<section class="phase"><div class="phase-h"><h3>${esc(p.name)}</h3><span class="mono muted">${done}/${p.steps.length}</span></div><ol class="steps">${p.steps.map(s => {
       const st = stateOf(d, s.id), inf = info(d, s.id);
       const meta = [];
       if (st !== "open" && inf.d) meta.push(`${st === "klaar" ? "Klaar" : st === "nvt" ? "N.v.t. sinds" : "Gestart"} ${fmtDate(inf.d)}${inf.by ? ` · ${esc(inf.by)}` : ""}`);
@@ -332,7 +338,7 @@ function planHtml(){
   const p = ui.planDraft;
   return `<div class="sheet-inner"><div class="sheet-head"><div class="head-left"><div class="eyebrow">Geldt voor alle dossiers</div><h2 id="sheet-title">Stappenplan</h2><p class="muted">Pas fasen en stappen aan jullie werkwijze aan. Wat al is afgevinkt blijft bewaard; een verwijderde stap telt niet meer mee in de voortgang. Een termijn rekent vanaf de datum van de beschikking.</p></div><div class="head-right"><button class="btn ghost" type="button" data-close>Sluiten</button></div></div>
     ${p.phases.map((ph, pi) => `<section class="ed-phase">
-      <div class="ed-row"><span class="eyebrow">Fase ${pi + 1}</span><input class="input" id="ph-${esc(ph.id)}" data-pf="phase" data-p="${pi}" value="${esc(ph.name)}" aria-label="Naam fase ${pi + 1}"><input class="input when-in" id="pw-${esc(ph.id)}" data-pf="when" data-p="${pi}" value="${esc(ph.when)}" placeholder="Richttijd, bijv. week 1–2" aria-label="Richttijd fase ${pi + 1}">
+      <div class="ed-row"><span class="eyebrow">Fase ${pi + 1}</span><input class="input" id="ph-${esc(ph.id)}" data-pf="phase" data-p="${pi}" value="${esc(ph.name)}" aria-label="Naam fase ${pi + 1}">
         <div class="ed-btns"><button class="icon-btn" type="button" data-act="pup" data-p="${pi}" aria-label="Fase omhoog"${pi === 0 ? " disabled" : ""}>↑</button><button class="icon-btn" type="button" data-act="pdown" data-p="${pi}" aria-label="Fase omlaag"${pi === p.phases.length - 1 ? " disabled" : ""}>↓</button><button class="icon-btn" type="button" data-act="pdel" data-p="${pi}" aria-label="Fase verwijderen">✕</button></div></div>
       <ol class="ed-steps">${ph.steps.map((s, si) => `<li class="ed-step">
         <input class="input" id="sn-${esc(s.id)}" data-pf="name" data-p="${pi}" data-s="${si}" value="${esc(s.name)}" placeholder="Naam van de stap" aria-label="Naam stap">
@@ -466,7 +472,6 @@ document.addEventListener("input", e => {
   if (t.dataset.pf && ui.planDraft){
     const ph = ui.planDraft.phases[+t.dataset.p];
     if (t.dataset.pf === "phase") ph.name = t.value;
-    else if (t.dataset.pf === "when") ph.when = t.value;
     else { const s = ph.steps[+t.dataset.s]; if (t.dataset.pf === "days"){ const n = parseInt(t.value, 10); if (n > 0) s.deadlineDays = n; else delete s.deadlineDays; } else s[t.dataset.pf] = t.value; }
   }
 });
@@ -511,14 +516,14 @@ async function planAction(act, pi, si){
   if (act === "pup") mv(p.phases, pi, pi - 1);
   else if (act === "pdown") mv(p.phases, pi, pi + 1);
   else if (act === "pdel") p.phases.splice(pi, 1);
-  else if (act === "padd") p.phases.push({id: uid("f"), name: "Nieuwe fase", when: "", steps: [{id: uid("s"), name: ""}]});
+  else if (act === "padd") p.phases.push({id: uid("f"), name: "Nieuwe fase", steps: [{id: uid("s"), name: ""}]});
   else if (act === "sup") mv(p.phases[pi].steps, si, si - 1);
   else if (act === "sdown") mv(p.phases[pi].steps, si, si + 1);
   else if (act === "sdel") p.phases[pi].steps.splice(si, 1);
   else if (act === "sadd") p.phases[pi].steps.push({id: uid("s"), name: ""});
   else if (act === "reset"){ ui.planDraft = clone(DEFAULT_PLAN); toast("Standaardroute teruggezet. Klik op Opslaan om hem voor iedereen te gebruiken."); }
   else if (act === "save"){
-    const out = {phases: p.phases.map(ph => ({id: ph.id, name: ph.name.trim() || "Naamloze fase", when: (ph.when || "").trim(), steps: ph.steps.filter(s => s.name.trim()).map(s => { const o = {id: s.id, name: s.name.trim()}; if (s.hint && s.hint.trim()) o.hint = s.hint.trim(); if (s.deadlineDays > 0) o.deadlineDays = s.deadlineDays; return o; })})).filter(ph => ph.steps.length)};
+    const out = {phases: p.phases.map(ph => ({id: ph.id, name: ph.name.trim() || "Naamloze fase", steps: ph.steps.filter(s => s.name.trim()).map(s => { const o = {id: s.id, name: s.name.trim()}; if (s.hint && s.hint.trim()) o.hint = s.hint.trim(); if (s.deadlineDays > 0) o.deadlineDays = s.deadlineDays; return o; })})).filter(ph => ph.steps.length)};
     if (!out.phases.length){ toast("Het stappenplan heeft minstens één stap nodig."); return; }
     const {error} = await sb.from("instellingen").upsert({sleutel: "stappenplan", waarde: out});
     if (error){ writeError(error); return; }
