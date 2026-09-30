@@ -48,6 +48,6 @@ Om later iets aan te passen, open je het bestand op GitHub, klik je op het potlo
 
 ## Goed om te weten
 
-- Een gratis Supabase-project pauzeert na 7 dagen zonder gebruik. Je zet het weer aan via het Supabase-dashboard. Bij wekelijks gebruik gebeurt dit niet.
+- Een gratis Supabase-project pauzeert na 7 dagen zonder gebruik. Om dat te voorkomen roept GitHub elke 3 dagen de database even aan (`.github/workflows/keepalive.yml`). Controleren kan op GitHub onder **Actions**. Staat het project toch op pauze, zet het dan weer aan via het Supabase-dashboard (**Restore project**).
 - De publishable key in `config.js` mag openbaar zijn. De beveiliging zit in de database: alleen ingelogde teamleden kunnen lezen en schrijven.
 - Een collega uit het team halen: verwijder de regel in `teamleden` en het account onder **Authentication > Users**.

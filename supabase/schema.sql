@@ -145,3 +145,10 @@ exception when duplicate_object then null; end $$;
 
 -- Teamleden toevoegen (e-mailadres in kleine letters), bijvoorbeeld:
 -- insert into public.teamleden (email, naam) values ('naam@voorbeeld.nl', 'Voornaam');
+
+-- Wakker houden: GitHub roept deze functie elke 3 dagen aan (.github/workflows/keepalive.yml),
+-- zodat het gratis project niet pauzeert. Geeft alleen 1 terug en leest geen gegevens.
+create or replace function public.ping()
+returns integer language sql stable security invoker set search_path = '' as $$ select 1 $$;
+revoke execute on function public.ping() from public;
+grant execute on function public.ping() to anon, authenticated;
