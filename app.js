@@ -128,11 +128,11 @@ function columns(){
 function meetingOrder(){ return columns().flatMap(c => c.items).filter(d => !d.archived).map(d => d.id); }
 
 /* ---------- pieces ---------- */
-// Eén balkje per fase, gevuld met klaar, n.v.t. en bezig.
+// Eén balkje per fase: klaar en n.v.t. tellen allebei als afgerond (groen), daarna bezig.
 function phaseBar(d){
   return `<div class="pbar" aria-hidden="true">${plan.phases.filter(p => p.steps.length).map(ph => {
-    const w = st => (ph.steps.filter(s => stateOf(d, s.id) === st).length / ph.steps.length * 100).toFixed(1) + "%";
-    return `<span class="pseg"><i class="k" style="width:${w("klaar")}"></i><i class="n" style="width:${w("nvt")}"></i><i class="b" style="width:${w("bezig")}"></i></span>`;
+    const w = f => (ph.steps.filter(s => f(stateOf(d, s.id))).length / ph.steps.length * 100).toFixed(1) + "%";
+    return `<span class="pseg"><i class="k" style="width:${w(isDone)}"></i><i class="b" style="width:${w(st => st === "bezig")}"></i></span>`;
   }).join("")}</div>`;
 }
 function routeHtml(d, opts = {}){

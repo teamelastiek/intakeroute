@@ -130,7 +130,6 @@ button{font:inherit;color:inherit}
 .pseg{flex:1;min-width:0;height:6px;border-radius:2px;background:var(--line);display:flex;overflow:hidden}
 .pseg i{display:block;height:100%;flex:none}
 .pseg i.k{background:var(--accent)}
-.pseg i.n{background:var(--accent-soft)}
 .pseg i.b{background:var(--wait)}
 
 .chip{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;background:var(--surface-2);color:var(--muted);white-space:nowrap}
@@ -294,7 +293,7 @@ details.more[open] summary{margin-bottom:14px}
     <input class="input" id="f-q" type="search" placeholder="Zoek op naam of dossiernummer" aria-label="Zoeken">
     <select class="select" id="f-bw" aria-label="Filter op medewerker"><option value="">Alle medewerkers</option></select>
     <label class="check"><input type="checkbox" id="f-arch"> Toon gearchiveerd</label>
-    <div class="legend" aria-hidden="true"><span><i class="k"></i>Klaar</span><span><i class="b"></i>Bezig / wacht</span><span><i class="n"></i>N.v.t.</span><span><i></i>Open</span></div>
+    <div class="legend" aria-hidden="true"><span><i class="k"></i>Klaar of n.v.t.</span><span><i class="b"></i>Bezig / wacht</span><span><i></i>Open</span></div>
   </div>
   <main id="board" class="board" aria-live="polite"></main>
 </div>
