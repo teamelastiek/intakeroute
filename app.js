@@ -159,15 +159,15 @@ function peopleHtml(d){
 }
 function cardHtml(d){
   const pr = progress(d);
-  // Alleen termijnen die binnen 30 dagen vallen of verlopen zijn; de rest staat in het dossier.
-  const chips = deadlinesOf(d).filter(x => x.days <= 30).map(x => deadlineChip(x)).join("") + (d.archived ? `<span class="chip">Gearchiveerd</span>` : "");
+  // Geen aftellen op het kaartje; alleen een verlopen termijn valt op. Details staan in het dossier.
+  const chips = deadlinesOf(d).filter(x => x.days < 0).map(x => `<span class="chip late" title="Termijn ${esc(x.step.name)}: ${fmtDate(x.due)}">${esc(x.step.name.split(" ")[0])} · termijn verlopen</span>`).join("") + (d.archived ? `<span class="chip">Gearchiveerd</span>` : "");
   const people = [d.bewindvoerder, d.assistent].filter(Boolean).join(" / ");
   const meta = [d.dossiernummer, people].filter(Boolean).map(esc).join(" · ");
   return `<button type="button" class="card${d.archived ? " archived" : ""}" data-open="${esc(d.id)}">
     <div class="card-top"><h3>${esc(d.naam || "Naamloos dossier")}</h3><span class="pct">${pr.pct}%</span></div>
     ${meta ? `<div class="card-meta">${meta}</div>` : ""}
     ${phaseBar(d)}
-    ${chips ? `<div class="chips">${chips}</div>` : ""}
+    <div class="chips">${chips}</div>
   </button>`;
 }
 
@@ -209,9 +209,9 @@ function renderBoard(){
     return;
   }
   b.style.display = "";
-  b.innerHTML = columns().map(c => `<section class="lane${c.finish ? " finish" : ""}${c.items.length ? "" : " empty"}" aria-label="${esc(c.name)}">
-    <div class="lane-head"><div class="eyebrow">${esc(c.eyebrow)}</div><h2>${esc(c.name)} <span class="count">${c.items.length}</span></h2></div>
-    ${c.items.length ? `<div class="lane-cards">${c.items.map(cardHtml).join("")}</div>` : `<div class="lane-empty">Geen dossiers</div>`}
+  b.innerHTML = columns().map(c => `<section class="lane${c.finish ? " finish" : ""}" aria-label="${esc(c.name)}">
+    <div class="lane-head"><div class="lane-top"><span class="eyebrow">${esc(c.eyebrow)}</span><span class="count">${c.items.length}</span></div><h2>${esc(c.name)}</h2></div>
+    <div class="lane-cards">${c.items.length ? c.items.map(cardHtml).join("") : `<div class="lane-empty">Geen dossiers</div>`}</div>
   </section>`).join("");
 }
 function renderAll(){
