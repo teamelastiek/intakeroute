@@ -65,7 +65,9 @@ let dossiers = [];
 let dbState = "loading"; // loading | ready | none
 let sb = null, channel = null;
 let me = {email: "", naam: ""};
-const ui = {q:"", bw:"", archived:false, sheet:null, deferred:false, confirmDelete:false, planDraft:null, fold:{}};
+let team = []; // namen uit de teamlijst, voor 'Wie pakt dit op?'
+let actLog = [], actLogState = "idle"; // logboek van toewijzingen: idle | loading | ready | error
+const ui = {q:"", bw:"", archived:false, sheet:null, deferred:false, confirmDelete:false, planDraft:null, fold:{}, actTab:"open", actWho:"", wWho:"", recentDone:{}};
 const chains = new Map(), inflight = new Map();
 
 const $ = s => document.querySelector(s);
@@ -114,7 +116,7 @@ function upsertLocal(d){ const i = dossiers.findIndex(x => x.id === d.id); if (i
 function visible(){
   const q = ui.q.trim().toLowerCase();
   return dossiers.filter(d => (ui.archived || !d.archived)
-    && (!ui.bw || d.bewindvoerder === ui.bw || d.assistent === ui.bw)
+    && (!ui.bw || d.bewindvoerder === ui.bw || d.assistent === ui.bw || openActions(d).some(s => info(d, s.id).w === ui.bw))
     && (!q || [d.naam, d.dossiernummer, d.bewindvoerder, d.assistent].some(v => String(v || "").toLowerCase().includes(q))));
 }
 function sortKey(d){ const dl = deadlinesOf(d); return dl.length ? Math.min(...dl.map(x => x.days)) : 1e6; }
@@ -151,6 +153,13 @@ function routeHtml(d, opts = {}){
   const all = currentPhase(d) === -1 && steps().length > 0;
   return `<div class="route${opts.big ? " big" : ""}">${ph}<div class="rfin${all && !opts.static ? " on" : ""}"><div class="rtrack"><span class="flag">Draait</span></div><div class="rlabel"><span>Budgetplan</span></div></div></div>`;
 }
+// Stappen die aan iemand zijn toegewezen en nog niet klaar of n.v.t. zijn.
+function openActions(d){ return steps().filter(s => info(d, s.id).w && !isDone(stateOf(d, s.id))); }
+function whoSelect(d, s){
+  const w = info(d, s.id).w || "";
+  const names = [...new Set([...team, w].filter(Boolean))];
+  return `<select class="select who" data-who="${esc(s.id)}" aria-label="Wie pakt ${esc(s.name)} op?"><option value="">Wie pakt dit op?</option>${names.map(n => `<option value="${esc(n)}"${n === w ? " selected" : ""}>${esc(n)}</option>`).join("")}</select>`;
+}
 // Ingeklapt als de gebruiker dat koos; anders standaard dicht zodra de fase helemaal klaar is.
 function isFolded(d, p){
   const k = d.id + ":" + p.id;
@@ -177,24 +186,63 @@ function cardHtml(d){
 }
 
 /* ---------- render: main ---------- */
-function renderSummary(){
-  const act = dossiers.filter(d => !d.archived);
-  const running = act.filter(d => currentPhase(d) === -1 && steps().length).length;
-  const busy = act.reduce((n, d) => n + progress(d).busy, 0);
-  const dl = act.flatMap(deadlinesOf);
-  const late = dl.filter(x => x.days < 0).length, soon = dl.filter(x => x.days >= 0 && x.days <= 30).length;
-  const avg = act.length ? Math.round(act.reduce((s, d) => s + progress(d).pct, 0) / act.length) : 0;
-  const has = dbState === "ready";
-  $("#summary").innerHTML = [
-    ["Actieve dossiers", has ? act.length : "–", "in de intakeroute"],
-    ["Gemiddelde voortgang", has ? avg + "%" : "–", `over ${steps().length} stappen`],
-    ["In behandeling", has ? busy : "–", "stappen die lopen of wachten"],
-    ["Termijnen ≤ 30 dagen", has ? soon : "–", late ? `<span class="s late">${late} verlopen</span>` : "geen verlopen termijnen"],
-    ["Budgetplan draait", has ? running : "–", "klaar voor regulier beheer"]
-  ].map(([l, v, s]) => `<div class="stat"><span class="eyebrow">${l}</span><span class="v">${v}</span>${String(s).startsWith("<span") ? s : `<span class="s">${s}</span>`}</div>`).join("");
+// Dashboard-widget: tabel met acties. Status klikken wisselt open/bezig, het vinkje zet de stap op klaar.
+// Net afgevinkte acties blijven doorgestreept staan tot de pagina ververst, zodat een vinkje terug te draaien is.
+function widgetRows(who){
+  return dossiers.filter(d => !d.archived).flatMap(d => steps().filter(s => {
+    const i = info(d, s.id), st = stateOf(d, s.id);
+    if (!i.w || (who && i.w !== who)) return false;
+    return !isDone(st) || (st === "klaar" && (d.id + ":" + s.id) in ui.recentDone);
+  }).map(s => ({d, s, i: info(d, s.id), st: stateOf(d, s.id)})))
+    .sort((a, b) => String(a.i.wd || "").localeCompare(String(b.i.wd || "")));
 }
+function renderSummary(){
+  const el = $("#summary");
+  if (dbState !== "ready"){ el.innerHTML = ""; return; }
+  const names = [...new Set([...team, ...dossiers.flatMap(d => openActions(d).map(s => info(d, s.id).w))].filter(Boolean))].sort((a, b) => a.localeCompare(b, "nl"));
+  if (ui.wWho && !names.includes(ui.wWho)) ui.wWho = "";
+  const who = ui.wWho, rows = widgetRows(who), open = rows.filter(r => r.st !== "klaar").length;
+  const title = who === me.naam ? "Mijn acties" : who ? "Acties van " + esc(who) : "Acties van het team";
+  const empty = who === me.naam ? "Je hebt geen openstaande acties." : who ? esc(who) + " heeft geen openstaande acties." : "Er staan geen acties open. Kies in een dossier bij een stap wie hem oppakt.";
+  // Per overleg: acties gekoppeld op dezelfde dag horen bij hetzelfde overleg.
+  const groups = new Map();
+  rows.forEach(r => { const k = r.i.wd ? dayKey(r.i.wd) : "zz"; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r); });
+  const rowHtml = r => {
+    const done = r.st === "klaar", label = esc(r.s.name) + " bij " + esc(r.d.naam || "dossier");
+    return `<div class="at-row${done ? " done" : ""}" role="row">
+      <span class="at-chk" role="cell"><input type="checkbox" data-check="${esc(r.d.id)}" data-step="${esc(r.s.id)}"${done ? " checked" : ""} aria-label="${label} klaar"></span>
+      <span class="at-who" role="cell">${esc(r.i.w)}</span>
+      <span class="at-act" role="cell"><button type="button" class="at-link" data-open="${esc(r.d.id)}">${esc(r.s.name)}</button></span>
+      <span class="at-cli" role="cell"><button type="button" class="at-link" data-open="${esc(r.d.id)}">${esc(r.d.naam || "Naamloos dossier")}</button></span>
+      <span class="at-st" role="cell">${done ? `<span class="chip ok">Klaar</span>` : `<button type="button" class="chip at-toggle${r.st === "bezig" ? " soon" : ""}" data-toggle="${esc(r.d.id)}" data-step="${esc(r.s.id)}" title="Klik om te wisselen tussen Open en Bezig" aria-label="${label}: ${LABEL[r.st]}. Klik om te wisselen">${LABEL[r.st]}</button>`}</span>
+    </div>`;
+  };
+  const body = [...groups.keys()].sort().map(k => {
+    const items = groups.get(k).sort((a, b) => a.i.w.localeCompare(b.i.w, "nl") || String(a.i.wd).localeCompare(String(b.i.wd)));
+    const n = items.filter(r => r.st !== "klaar").length;
+    const label = k === "zz" ? "Zonder datum" : "Overleg " + new Date(items[0].i.wd).toLocaleDateString("nl-NL", {weekday: "long", day: "numeric", month: "long", year: "numeric"});
+    return `<div class="at-group" role="row"><span role="cell">${label} <span class="count">${n} open</span></span></div>` + items.map(rowHtml).join("");
+  }).join("");
+  el.innerHTML = `<div class="dash"><div class="widget">
+    <div class="widget-head"><h2>${title} <span class="count">${open}</span></h2><div class="widget-tools"><label class="wlabel" for="w-who">Wie</label><select class="select" id="w-who"><option value="">Iedereen</option>${names.map(n => `<option value="${esc(n)}"${n === who ? " selected" : ""}>${n === me.naam ? esc(n) + " (ik)" : esc(n)}</option>`).join("")}</select><button class="btn" type="button" id="btn-log">Logboek</button></div></div>
+    ${rows.length ? `<div class="atable" role="table" aria-label="${title}"><div class="at-row at-head" role="row"><span role="columnheader"><span class="sr">Klaar</span></span><span role="columnheader">Wie</span><span role="columnheader">Actie</span><span role="columnheader">Cliënt</span><span role="columnheader">Status</span></div>${body}</div>` : `<p class="muted">${empty}</p>`}
+  </div>${teamHtml(who)}</div>`;
+}
+// Teamstand: per medewerker hoeveel acties openstaan en sinds wanneer de oudste ligt. Klik = filter de tabel.
+function teamHtml(who){
+  const all = dossiers.filter(d => !d.archived).flatMap(d => openActions(d).map(s => ({w: info(d, s.id).w, st: stateOf(d, s.id), wd: info(d, s.id).wd})));
+  const names = [...new Set([...team, ...all.map(a => a.w)].filter(Boolean))].sort((a, b) => (b === me.naam) - (a === me.naam) || a.localeCompare(b, "nl"));
+  const rows = names.map(n => {
+    const it = all.filter(a => a.w === n), busy = it.filter(a => a.st === "bezig").length;
+    const oldest = it.map(a => a.wd).filter(Boolean).sort()[0];
+    return `<li><button type="button" class="tm${n === who ? " on" : ""}" data-teamwho="${esc(n)}" aria-pressed="${n === who}"><span class="tm-n">${esc(n)}${n === me.naam ? " (ik)" : ""}</span><span class="tm-c">${it.length ? it.length + (it.length === 1 ? " actie" : " acties") + (busy ? " · " + busy + " bezig" : "") : "geen acties"}</span><span class="tm-o">${oldest ? "oudste " + fmtDate(oldest) : ""}</span></button></li>`;
+  }).join("");
+  return `<div class="widget team"><div class="widget-head"><h2>Teamstand</h2>${who ? `<button class="linkbtn" type="button" data-teamwho="">Iedereen tonen</button>` : ""}</div><ul class="tm-list">${rows}</ul><p class="muted tm-hint">Klik op een naam om de acties van die persoon te tonen.</p></div>`;
+}
+function loadWho(){ try { return localStorage.getItem("intakeroute.wie"); } catch (e){ return null; } }
+function saveWho(v){ try { localStorage.setItem("intakeroute.wie", v); } catch (e){} }
 function renderFilters(){
-  const names = [...new Set(dossiers.flatMap(d => [d.bewindvoerder, d.assistent]).filter(Boolean))].sort((a, b) => a.localeCompare(b, "nl"));
+  const names = [...new Set(dossiers.flatMap(d => [d.bewindvoerder, d.assistent, ...openActions(d).map(s => info(d, s.id).w)]).filter(Boolean))].sort((a, b) => a.localeCompare(b, "nl"));
   if (ui.bw && !names.includes(ui.bw)) ui.bw = "";
   const sel = $("#f-bw");
   const want = `<option value="">Alle medewerkers</option>` + names.map(n => `<option value="${esc(n)}"${n === ui.bw ? " selected" : ""}>${esc(n)}</option>`).join("");
@@ -221,7 +269,7 @@ function renderBoard(){
 }
 function renderAll(){
   renderSummary(); renderFilters(); renderBoard();
-  if (ui.sheet && (ui.sheet.mode === "dossier" || ui.sheet.mode === "meeting")) renderSheet();
+  if (ui.sheet && ["dossier", "meeting", "actions"].includes(ui.sheet.mode)) renderSheet();
   $("#btn-new").disabled = dbState !== "ready";
   $("#btn-plan").disabled = dbState !== "ready";
   $("#btn-meeting").disabled = dbState !== "ready" || !dossiers.some(d => !d.archived);
@@ -244,6 +292,7 @@ function renderSheet(force){
   if (s.mode === "new") el.innerHTML = newHtml();
   else if (s.mode === "plan") el.innerHTML = planHtml();
   else if (s.mode === "pw") el.innerHTML = pwHtml();
+  else if (s.mode === "actions") el.innerHTML = actionsHtml();
   else {
     if (s.mode === "meeting"){ s.ids = s.ids.filter(id => dossiers.some(d => d.id === id)); if (!s.ids.length){ closeSheet(); return; } s.idx = Math.min(s.idx, s.ids.length - 1); }
     const d = sheetDossier(); if (!d){ closeSheet(); toast("Dit dossier is verwijderd."); return; }
@@ -260,7 +309,7 @@ function dossierHtml(d, meeting){
         <h2 id="sheet-title">${esc(d.naam || "Naamloos dossier")}</h2>
         <div class="people">${peopleHtml(d) || "Nog geen medewerkers gekoppeld"}${d.beschikking ? ` · beschikking ${fmtDate(parseDay(d.beschikking))}` : ""}</div>
       </div>
-      <div class="head-right">${nav}<div class="bigpct">${pr.pct}<small>%</small></div><button class="btn ghost" type="button" data-close>Sluiten</button></div>
+      <div class="head-right">${ui.sheet.back ? `<button class="btn" type="button" data-backacts>← Acties</button>` : ""}${nav}<div class="bigpct">${pr.pct}<small>%</small></div><button class="btn ghost" type="button" data-close>Sluiten</button></div>
     </div>`;
   const route = `<div class="routebox">${routeHtml(d, {big: true})}<div class="rb-foot"><span>${pr.done} van ${pr.total} stappen klaar${pr.busy ? ` · ${pr.busy} bezig` : ""} · klik op een station om de status te wijzigen</span><span>${dl.map(x => deadlineChip(x, true)).join(" ")}</span></div></div>`;
 
@@ -269,6 +318,7 @@ function dossierHtml(d, meeting){
   const agenda = `<div class="agenda">
       <div class="ag"><span class="eyebrow">Loopt of wacht op reactie</span>${busy.length ? `<ul>${busy.map(s => `<li><b>${esc(s.name)}</b>${info(d, s.id).n ? `<span>${esc(info(d, s.id).n)}</span>` : info(d, s.id).d ? `<span>Gestart ${fmtDate(info(d, s.id).d)}</span>` : ""}</li>`).join("")}</ul>` : `<p class="none">Niets in behandeling.</p>`}</div>
       <div class="ag"><span class="eyebrow">Volgende stap</span>${nx ? `<ul><li><b>${esc(nx.name)}</b>${nx.hint ? `<span>${esc(nx.hint)}</span>` : ""}</li></ul>` : `<p class="none">Geen open stappen meer.</p>`}</div>
+      <div class="ag"><span class="eyebrow">Afgesproken acties</span>${openActions(d).length ? `<ul>${openActions(d).map(s => { const i = info(d, s.id); return `<li><b>${esc(i.w)}: ${esc(s.name)}</b><span>${LABEL[stateOf(d, s.id)]}${i.wd ? ` · afgesproken ${fmtDate(i.wd)}` : ""}</span></li>`; }).join("")}</ul>` : `<p class="none">Nog niemand toegewezen. Kies bij een stap wie hem oppakt.</p>`}</div>
       <div class="ag"><span class="eyebrow">Notitie bij dossier</span>${d.notitie ? `<p style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(d.notitie)}</p>` : `<p class="none">Geen notitie.</p>`}</div>
     </div>`;
 
@@ -280,11 +330,12 @@ function dossierHtml(d, meeting){
       const st = stateOf(d, s.id), inf = info(d, s.id);
       const meta = [];
       if (st !== "open" && inf.d) meta.push(`${st === "klaar" ? "Klaar" : st === "nvt" ? "N.v.t. sinds" : "Gestart"} ${fmtDate(inf.d)}${inf.by ? ` · ${esc(inf.by)}` : ""}`);
+      if (inf.w && inf.wd) meta.push(`Bij ${esc(inf.w)} sinds ${fmtDate(inf.wd)}`);
       deadlinesOf(d).filter(x => x.step.id === s.id).forEach(x => meta.push(deadlineChip(x)));
       return `<li class="step s-${st}">
         <div><div class="step-name">${esc(s.name)}</div>${s.hint ? `<div class="hint">${esc(s.hint)}</div>` : ""}<div class="meta">${meta.join(" ")}</div></div>
         <div class="seg" role="group" aria-label="Status ${esc(s.name)}">${STATES.map(v => `<button type="button" data-set="${esc(s.id)}" data-val="${v}" aria-pressed="${st === v}">${LABEL[v]}</button>`).join("")}</div>
-        <input class="input note" id="note-${esc(s.id)}" data-note="${esc(s.id)}" value="${esc(inf.n)}" placeholder="Notitie, bijv. aangeschreven, wacht op reactie" aria-label="Notitie bij ${esc(s.name)}">
+        <div class="step-foot">${whoSelect(d, s)}<input class="input note" id="note-${esc(s.id)}" data-note="${esc(s.id)}" value="${esc(inf.n)}" placeholder="Notitie, bijv. aangeschreven, wacht op reactie" aria-label="Notitie bij ${esc(s.name)}"></div>
       </li>`;
     }).join("")}</ol></section>`;
   }).join("");
@@ -328,6 +379,68 @@ function newHtml(){
       <p class="muted" style="font-size:13px">Met een beschikkingsdatum staat de stap ‘Beschikking ontvangen’ meteen op klaar en telt de termijn voor de boedelbeschrijving mee.</p>
       <div class="actions"><button class="btn primary" type="submit" id="nd-submit">Dossier aanmaken</button></div>
     </form></div>`;
+}
+async function loadActLog(){
+  actLogState = "loading";
+  const {data, error} = await sb.from("acties_log").select("*").order("created_at", {ascending: false}).limit(2000);
+  if (error){ actLogState = "error"; console.error(error); } else { actLog = data; actLogState = "ready"; }
+  if (ui.sheet && ui.sheet.mode === "actions") renderSheet(true);
+}
+function stepName(id){ const s = steps().find(x => x.id === id); return s ? s.name : "Stap die niet meer in het stappenplan staat"; }
+function dayLabel(iso){ const t = new Date(iso).toLocaleDateString("nl-NL", {weekday: "long", day: "numeric", month: "long", year: "numeric"}); return t.charAt(0).toUpperCase() + t.slice(1); }
+function dayKey(iso){ const d = new Date(iso); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+function dossierLine(d){ return esc(d.naam || "Naamloos dossier") + (d.dossiernummer ? " · " + esc(d.dossiernummer) : ""); }
+// Hoe staat een eerder afgesproken actie er nu voor?
+function nowChip(d, stepId, w){
+  const st = stateOf(d, stepId), cur = info(d, stepId).w || "";
+  if (isDone(st)) return `<span class="chip ok">${st === "nvt" ? "N.v.t." : "Klaar"}</span>`;
+  if (cur !== w) return `<span class="chip">${cur ? "Nu bij " + esc(cur) : "Niet meer toegewezen"}</span>`;
+  return `<span class="chip${st === "bezig" ? " soon" : ""}">${LABEL[st]}</span>`;
+}
+// Openstaande acties, oudste koppeling eerst.
+function actionRows(who){
+  return dossiers.filter(d => !d.archived).flatMap(d => openActions(d).map(s => ({d, s, i: info(d, s.id), st: stateOf(d, s.id)})))
+    .filter(r => !who || r.i.w === who)
+    .sort((a, b) => String(a.i.wd || "").localeCompare(String(b.i.wd || "")));
+}
+function actRow(r, withWho){
+  return `<li class="act-row"><button type="button" class="act" data-open="${esc(r.d.id)}"><span class="act-main"><b>${withWho ? esc(r.i.w) + ": " : ""}${esc(r.s.name)}</b><span>${dossierLine(r.d)}</span></span><span class="act-side"><span class="chip${r.st === "bezig" ? " soon" : ""}">${LABEL[r.st]}</span>${r.i.wd ? `<span>afgesproken ${fmtDate(r.i.wd)}</span>` : ""}</span></button><button type="button" class="btn act-done" data-done="${esc(r.d.id)}" data-step="${esc(r.s.id)}" aria-label="${esc(r.s.name)} bij ${esc(r.d.naam || "dossier")} op klaar zetten">Klaar</button></li>`;
+}
+function openListHtml(){
+  const rows = dossiers.filter(d => !d.archived).flatMap(d => openActions(d).map(s => ({d, s, i: info(d, s.id), st: stateOf(d, s.id)})))
+    .filter(r => !ui.actWho || r.i.w === ui.actWho);
+  const by = new Map();
+  rows.forEach(r => { if (!by.has(r.i.w)) by.set(r.i.w, []); by.get(r.i.w).push(r); });
+  const groups = [...by.keys()].sort((a, b) => a.localeCompare(b, "nl")).map(w => {
+    const items = by.get(w).sort((a, b) => String(a.i.wd || "").localeCompare(String(b.i.wd || "")));
+    return `<section class="act-group"><h3 class="section-h">${esc(w)} <span class="count">${items.length}</span></h3><ul class="act-list">${items.map(r => actRow(r, false)).join("")}</ul></section>`;
+  }).join("");
+  return groups || `<div class="panel"><p>${ui.actWho ? "Geen openstaande acties voor " + esc(ui.actWho) + "." : "Er staan geen acties open. Kies in een dossier bij een stap wie hem oppakt."}</p></div>`;
+}
+function logListHtml(){
+  if (actLogState === "error") return `<div class="panel"><p>Het logboek kon niet worden geladen.</p><div class="actions"><button class="btn" type="button" data-actreload>Opnieuw proberen</button></div></div>`;
+  if (actLogState !== "ready") return `<div class="panel"><p>Logboek laden…</p></div>`;
+  const rows = actLog.filter(r => dossiers.some(d => d.id === r.dossier_id) && (!ui.actWho || r.medewerker === ui.actWho || r.vorige === ui.actWho));
+  if (!rows.length) return `<div class="panel"><p>${ui.actWho ? "Nog niets afgesproken met " + esc(ui.actWho) + "." : "Nog geen afspraken vastgelegd. Zodra iemand bij een stap wordt gekozen, komt dat hier te staan."}</p></div>`;
+  const days = new Map();
+  rows.forEach(r => { const k = dayKey(r.created_at); if (!days.has(k)) days.set(k, []); days.get(k).push(r); });
+  return [...days.values()].map(items => {
+    const made = items.filter(r => r.medewerker).length;
+    return `<section class="act-group"><h3 class="section-h">${dayLabel(items[0].created_at)} <span class="count">${made} ${made === 1 ? "afspraak" : "afspraken"}</span></h3><ul class="act-list">${items.map(r => {
+      const d = dossiers.find(x => x.id === r.dossier_id);
+      const who = r.medewerker ? `<b>${esc(r.medewerker)}: ${esc(stepName(r.stap))}</b>` : `<b class="muted">Toewijzing weggehaald: ${esc(stepName(r.stap))}</b>`;
+      const sub = dossierLine(d) + (r.vorige ? ` · was ${esc(r.vorige)}` : "") + (r.gewijzigd_door ? ` · door ${esc(r.gewijzigd_door)}` : "");
+      return `<li><button type="button" class="act${r.medewerker ? "" : " gone"}" data-open="${esc(d.id)}"><span class="act-main">${who}<span>${sub}</span></span><span class="act-side">${r.medewerker ? `<span>nu:</span>${nowChip(d, r.stap, r.medewerker)}` : ""}</span></button></li>`;
+    }).join("")}</ul></section>`;
+  }).join("");
+}
+function actionsHtml(){
+  const names = [...new Set([...team, ...dossiers.flatMap(d => openActions(d).map(s => info(d, s.id).w)), ...actLog.map(r => r.medewerker)].filter(Boolean))].sort((a, b) => a.localeCompare(b, "nl"));
+  if (ui.actWho && !names.includes(ui.actWho)) ui.actWho = "";
+  const log = ui.actTab === "log";
+  return `<div class="sheet-inner"><div class="sheet-head"><div class="head-left"><div class="eyebrow">Alle dossiers</div><h2 id="sheet-title">${ui.actWho ? (ui.actWho === me.naam ? "Mijn acties" : "Acties van " + esc(ui.actWho)) : "Afgesproken acties"}</h2><p class="muted">${log ? "Per datum wat er is afgesproken, en hoe het er nu voor staat." : "Stappen die aan iemand zijn toegewezen en nog niet klaar zijn."} Klik op een regel om het dossier te openen.</p></div><div class="head-right"><button class="btn ghost" type="button" data-close>Sluiten</button></div></div>
+    <div class="act-bar"><div class="seg tabs" role="group" aria-label="Weergave"><button type="button" data-acttab="open" aria-pressed="${!log}">Openstaand</button><button type="button" data-acttab="log" aria-pressed="${log}">Logboek</button></div><select class="select" id="act-who" aria-label="Filter op medewerker"><option value="">Iedereen</option>${names.map(n => `<option value="${esc(n)}"${n === ui.actWho ? " selected" : ""}>${esc(n)}</option>`).join("")}</select></div>
+    ${log ? logListHtml() : openListHtml()}</div>`;
 }
 function pwHtml(){
   return `<div class="sheet-inner"><div class="sheet-head"><div class="head-left"><div class="eyebrow">${esc(me.email)}</div><h2 id="sheet-title">Wachtwoord wijzigen</h2></div><div class="head-right"><button class="btn ghost" type="button" data-close>Annuleren</button></div></div>
@@ -403,6 +516,12 @@ function setNote(id, stepId, n){
   touchLocal(d); renderAll();
   track(id, () => sb.rpc("set_step", {p_dossier: id, p_step: stepId, p_patch: {n}}));
 }
+function setWho(id, stepId, w){
+  const d = dossiers.find(x => x.id === id); if (!d) return;
+  d.status[stepId] = Object.assign({}, info(d, stepId), w ? {w, wd: new Date().toISOString()} : {w: null, wd: null});
+  touchLocal(d); renderAll(); if (ui.sheet) renderSheet(true);
+  track(id, () => sb.rpc("set_step", {p_dossier: id, p_step: stepId, p_patch: {w}}));
+}
 function setField(id, field, v){
   const d = dossiers.find(x => x.id === id); if (!d) return;
   d[field] = v; touchLocal(d); renderAll();
@@ -430,11 +549,18 @@ document.addEventListener("click", async e => {
   if (t.id === "btn-logout"){ await sb.auth.signOut(); return; }
   if (t.id === "btn-pw"){ openSheet({mode: "pw"}); return; }
   if ("retry" in ds){ dbState = "loading"; renderAll(); loadAll(); return; }
-  if (ds.open){ openSheet({mode: "dossier", id: ds.open}); return; }
+  if (ds.open){ const back = !!(ui.sheet && ui.sheet.mode === "actions"); openSheet({mode: "dossier", id: ds.open, back}); return; }
+  if ("teamwho" in ds){ ui.wWho = ds.teamwho; saveWho(ds.teamwho); renderSummary(); return; }
+  if (ds.toggle){ const dd = dossiers.find(x => x.id === ds.toggle); if (dd) setStep(dd.id, ds.step, stateOf(dd, ds.step) === "bezig" ? "open" : "bezig"); return; }
+  if (ds.done){ const dd = dossiers.find(x => x.id === ds.done); if (dd && stateOf(dd, ds.step) !== "klaar"){ setStep(dd.id, ds.step, "klaar"); toast("Op klaar gezet: " + stepName(ds.step)); } return; }
+  if ("backacts" in ds){ openSheet({mode: "actions"}); loadActLog(); return; }
+  if (ds.acttab){ ui.actTab = ds.acttab; renderSheet(true); if (ds.acttab === "log") loadActLog(); return; }
+  if ("actreload" in ds){ loadActLog(); renderSheet(true); return; }
   if ("close" in ds){ closeSheet(); return; }
   if (ds.fold && d){ const p = plan.phases.find(x => x.id === ds.fold); if (p){ ui.fold[d.id + ":" + p.id] = !isFolded(d, p); renderSheet(true); } return; }
   if (ds.foldall && d){ plan.phases.forEach(p => ui.fold[d.id + ":" + p.id] = ds.foldall === "1"); renderSheet(true); return; }
   if (t.id === "btn-new" || "newdossier" in ds){ openSheet({mode: "new"}); return; }
+  if (t.id === "btn-log"){ ui.actTab = "log"; ui.actWho = ui.wWho; openSheet({mode: "actions"}); loadActLog(); return; }
   if (t.id === "btn-plan"){ ui.planDraft = clone(plan); openSheet({mode: "plan"}); return; }
   if (t.id === "btn-meeting"){ const ids = meetingOrder(); if (ids.length) openSheet({mode: "meeting", ids, idx: 0}); return; }
   if ("example" in ds){
@@ -471,9 +597,19 @@ document.addEventListener("change", e => {
   const t = e.target, d = sheetDossier();
   if (t.id === "f-bw"){ ui.bw = t.value; renderBoard(); return; }
   if (t.id === "f-arch"){ ui.archived = t.checked; renderBoard(); return; }
+  if (t.id === "act-who"){ ui.actWho = t.value; renderSheet(true); return; }
+  if (t.id === "w-who"){ ui.wWho = t.value; saveWho(t.value); renderSummary(); return; }
+  if (t.dataset.check){
+    const dd = dossiers.find(x => x.id === t.dataset.check), step = t.dataset.step, k = t.dataset.check + ":" + step;
+    if (!dd) return;
+    if (t.checked){ if (stateOf(dd, step) !== "klaar"){ ui.recentDone[k] = stateOf(dd, step); setStep(dd.id, step, "klaar"); } }
+    else { const prev = ui.recentDone[k] && ui.recentDone[k] !== "klaar" ? ui.recentDone[k] : "open"; delete ui.recentDone[k]; setStep(dd.id, step, prev); }
+    return;
+  }
   if (!d) return;
   if (t.dataset.field){ const v = t.value.trim(); if ((d[t.dataset.field] || "") !== v) setField(d.id, t.dataset.field, v); }
   else if (t.dataset.note){ const v = t.value.trim(); if ((info(d, t.dataset.note).n || "") !== v) setNote(d.id, t.dataset.note, v); }
+  else if (t.dataset.who){ const v = t.value; if ((info(d, t.dataset.who).w || "") !== v) setWho(d.id, t.dataset.who, v); }
 });
 document.addEventListener("input", e => {
   const t = e.target;
@@ -545,10 +681,12 @@ async function planAction(act, pi, si){
 /* ---------- data loading & realtime ---------- */
 async function loadAll(){
   try {
-    const [pl, ds] = await Promise.all([
+    const [pl, ds, tl] = await Promise.all([
       sb.from("instellingen").select("waarde").eq("sleutel", "stappenplan").maybeSingle(),
-      sb.from("dossiers").select("*").order("created_at")
+      sb.from("dossiers").select("*").order("created_at"),
+      sb.from("teamleden").select("naam").order("naam")
     ]);
+    team = (tl.data || []).map(r => r.naam).filter(Boolean);
     if (ds.error) throw ds.error;
     plan = pl.data && validPlan(pl.data.waarde) ? clone(pl.data.waarde) : clone(DEFAULT_PLAN);
     const fresh = ds.data.map(fromRow);
@@ -611,6 +749,7 @@ async function enter(session){
   const {data, error} = await sb.from("teamleden").select("naam").eq("email", email).maybeSingle();
   if (error || !data){ showAuth("noaccess", email); return; }
   me = {email, naam: data.naam || email};
+  const savedWho = loadWho(); ui.wWho = savedWho !== null ? savedWho : me.naam;
   $("#auth").hidden = true; $("#app").hidden = false;
   $("#me-name").textContent = me.naam;
   dbState = "loading"; renderAll();

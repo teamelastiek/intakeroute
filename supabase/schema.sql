@@ -73,11 +73,11 @@ create trigger instellingen_stempel before insert or update on public.instelling
   for each row execute function public.stempel_instelling();
 
 -- Eén stap bijwerken zonder wijzigingen van collega's aan andere stappen te overschrijven.
--- p_patch bevat {"s": "open|bezig|klaar|nvt"} en/of {"n": "notitie"}.
+-- p_patch bevat {"s": "open|bezig|klaar|nvt"}, {"n": "notitie"} en/of {"w": "naam medewerker"}.
 create or replace function public.set_step(p_dossier uuid, p_step text, p_patch jsonb)
 returns void language plpgsql security invoker set search_path = public as $$
 declare
-  v_patch jsonb := coalesce(p_patch, '{}'::jsonb) - 'd' - 'by';
+  v_patch jsonb := coalesce(p_patch, '{}'::jsonb) - 'd' - 'by' - 'wd';
 begin
   if v_patch ? 's' then
     if v_patch ->> 's' not in ('open', 'bezig', 'klaar', 'nvt') then
@@ -87,6 +87,14 @@ begin
       v_patch := v_patch || jsonb_build_object('d', null, 'by', null);
     else
       v_patch := v_patch || jsonb_build_object('d', now(), 'by', public.mijn_naam());
+    end if;
+  end if;
+  -- Toegewezen medewerker: de database noteert zelf sinds wanneer
+  if v_patch ? 'w' then
+    if coalesce(v_patch ->> 'w', '') = '' then
+      v_patch := v_patch || jsonb_build_object('w', null, 'wd', null);
+    else
+      v_patch := v_patch || jsonb_build_object('wd', now());
     end if;
   end if;
   update public.dossiers
@@ -152,3 +160,50 @@ create or replace function public.ping()
 returns integer language sql stable security invoker set search_path = '' as $$ select 1 $$;
 revoke execute on function public.ping() from public;
 grant execute on function public.ping() to anon, authenticated;
+
+-- Logboek van toegewezen acties: wie kreeg wanneer welke stap.
+-- Wordt automatisch gevuld bij elke wijziging van een toewijzing; teamleden kunnen het alleen lezen.
+create table if not exists public.acties_log (
+  id bigint generated always as identity primary key,
+  dossier_id uuid not null references public.dossiers(id) on delete cascade,
+  stap text not null,
+  medewerker text,
+  vorige text,
+  gewijzigd_door text,
+  created_at timestamptz not null default now()
+);
+create index if not exists acties_log_created_at on public.acties_log (created_at desc);
+create index if not exists acties_log_dossier on public.acties_log (dossier_id);
+
+alter table public.acties_log enable row level security;
+drop policy if exists "acties_log lezen" on public.acties_log;
+create policy "acties_log lezen" on public.acties_log
+  for select to authenticated using (public.is_teamlid());
+revoke all on public.acties_log from anon, authenticated;
+grant select on public.acties_log to authenticated;
+
+create or replace function public.log_toewijzing()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  k text; ow text; nw text;
+begin
+  for k in
+    select jsonb_object_keys(coalesce(new.status, '{}'::jsonb))
+    union
+    select jsonb_object_keys(coalesce(old.status, '{}'::jsonb))
+  loop
+    ow := nullif(old.status -> k ->> 'w', '');
+    nw := nullif(new.status -> k ->> 'w', '');
+    if ow is distinct from nw then
+      insert into public.acties_log (dossier_id, stap, medewerker, vorige, gewijzigd_door)
+      values (new.id, k, nw, ow, public.mijn_naam());
+    end if;
+  end loop;
+  return new;
+end $$;
+revoke execute on function public.log_toewijzing() from public, anon, authenticated;
+
+drop trigger if exists dossiers_log_toewijzing on public.dossiers;
+create trigger dossiers_log_toewijzing after update of status on public.dossiers
+  for each row when (old.status is distinct from new.status)
+  execute function public.log_toewijzing();
