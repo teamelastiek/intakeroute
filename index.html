@@ -211,8 +211,14 @@ button.st:hover .dot{transform:scale(1.25)}
 .ag .none{font-size:13.5px;color:var(--muted)}
 
 .phase{display:grid;gap:10px}
-.phase-h{display:flex;justify-content:space-between;align-items:baseline;gap:10px;border-bottom:1px solid var(--line);padding-bottom:6px}
-.phase-h h3{font-size:19px;font-weight:600}
+.phase-h{margin:0;border-bottom:1px solid var(--line);padding-bottom:6px}
+.phase-t{display:flex;align-items:center;gap:10px;width:100%;background:none;border:0;padding:2px 0;margin:0;font:inherit;color:inherit;text-align:left;cursor:pointer}
+.phase-n{flex:1;min-width:0;font-size:19px;font-weight:600}
+.phase-t:hover .phase-n{color:var(--accent)}
+.phase.folded .phase-n{color:var(--muted)}
+.chev{flex:none;width:9px;height:9px;margin:0 3px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:translateY(-2px) rotate(45deg);transition:transform .15s ease}
+.phase.folded .chev{transform:rotate(-45deg)}
+.fold-all{display:flex;justify-content:flex-end;margin-bottom:-10px}
 .steps{list-style:none;margin:0;padding:0 0 0 30px;display:grid;gap:8px;position:relative}
 .steps::before{content:"";position:absolute;left:10px;top:18px;bottom:18px;width:2px;background:var(--line)}
 .step{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 14px;align-items:start;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px}

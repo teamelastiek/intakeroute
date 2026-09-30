@@ -65,7 +65,7 @@ let dossiers = [];
 let dbState = "loading"; // loading | ready | none
 let sb = null, channel = null;
 let me = {email: "", naam: ""};
-const ui = {q:"", bw:"", archived:false, sheet:null, deferred:false, confirmDelete:false, planDraft:null};
+const ui = {q:"", bw:"", archived:false, sheet:null, deferred:false, confirmDelete:false, planDraft:null, fold:{}};
 const chains = new Map(), inflight = new Map();
 
 const $ = s => document.querySelector(s);
@@ -150,6 +150,11 @@ function routeHtml(d, opts = {}){
   }).join("");
   const all = currentPhase(d) === -1 && steps().length > 0;
   return `<div class="route${opts.big ? " big" : ""}">${ph}<div class="rfin${all && !opts.static ? " on" : ""}"><div class="rtrack"><span class="flag">Draait</span></div><div class="rlabel"><span>Budgetplan</span></div></div></div>`;
+}
+// Ingeklapt als de gebruiker dat koos; anders standaard dicht zodra de fase helemaal klaar is.
+function isFolded(d, p){
+  const k = d.id + ":" + p.id;
+  return k in ui.fold ? ui.fold[k] : p.steps.every(s => isDone(stateOf(d, s.id)));
 }
 function peopleHtml(d){
   const p = [];
@@ -267,9 +272,11 @@ function dossierHtml(d, meeting){
       <div class="ag"><span class="eyebrow">Notitie bij dossier</span>${d.notitie ? `<p style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(d.notitie)}</p>` : `<p class="none">Geen notitie.</p>`}</div>
     </div>`;
 
-  const list = plan.phases.filter(p => p.steps.length).map(p => {
-    const done = p.steps.filter(s => isDone(stateOf(d, s.id))).length;
-    return `<section class="phase"><div class="phase-h"><h3>${esc(p.name)}</h3><span class="mono muted">${done}/${p.steps.length}</span></div><ol class="steps">${p.steps.map(s => {
+  const phases = plan.phases.filter(p => p.steps.length);
+  const anyOpen = phases.some(p => !isFolded(d, p));
+  const list = `<div class="fold-all"><button class="linkbtn" type="button" data-foldall="${anyOpen ? "1" : "0"}">${anyOpen ? "Alle fasen inklappen" : "Alle fasen uitklappen"}</button></div>` + phases.map(p => {
+    const done = p.steps.filter(s => isDone(stateOf(d, s.id))).length, folded = isFolded(d, p);
+    return `<section class="phase${folded ? " folded" : ""}"><h3 class="phase-h"><button type="button" class="phase-t" data-fold="${esc(p.id)}" aria-expanded="${!folded}"><span class="chev" aria-hidden="true"></span><span class="phase-n">${esc(p.name)}</span><span class="mono muted">${done === p.steps.length ? "Afgerond · " : ""}${done}/${p.steps.length}</span></button></h3><ol class="steps"${folded ? " hidden" : ""}>${p.steps.map(s => {
       const st = stateOf(d, s.id), inf = info(d, s.id);
       const meta = [];
       if (st !== "open" && inf.d) meta.push(`${st === "klaar" ? "Klaar" : st === "nvt" ? "N.v.t. sinds" : "Gestart"} ${fmtDate(inf.d)}${inf.by ? ` · ${esc(inf.by)}` : ""}`);
@@ -425,6 +432,8 @@ document.addEventListener("click", async e => {
   if ("retry" in ds){ dbState = "loading"; renderAll(); loadAll(); return; }
   if (ds.open){ openSheet({mode: "dossier", id: ds.open}); return; }
   if ("close" in ds){ closeSheet(); return; }
+  if (ds.fold && d){ const p = plan.phases.find(x => x.id === ds.fold); if (p){ ui.fold[d.id + ":" + p.id] = !isFolded(d, p); renderSheet(true); } return; }
+  if (ds.foldall && d){ plan.phases.forEach(p => ui.fold[d.id + ":" + p.id] = ds.foldall === "1"); renderSheet(true); return; }
   if (t.id === "btn-new" || "newdossier" in ds){ openSheet({mode: "new"}); return; }
   if (t.id === "btn-plan"){ ui.planDraft = clone(plan); openSheet({mode: "plan"}); return; }
   if (t.id === "btn-meeting"){ const ids = meetingOrder(); if (ids.length) openSheet({mode: "meeting", ids, idx: 0}); return; }
