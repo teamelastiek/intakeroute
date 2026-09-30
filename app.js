@@ -67,7 +67,7 @@ let sb = null, channel = null;
 let me = {email: "", naam: ""};
 let team = []; // namen uit de teamlijst, voor 'Wie pakt dit op?'
 let actLog = [], actLogState = "idle"; // logboek van toewijzingen: idle | loading | ready | error
-const ui = {q:"", bw:"", archived:false, sheet:null, deferred:false, confirmDelete:false, planDraft:null, fold:{}, actTab:"open", actWho:"", wWho:"", recentDone:{}};
+const ui = {q:"", bw:"", archived:false, sheet:null, deferred:false, confirmDelete:false, planDraft:null, fold:{}, agOpen:{}, actTab:"open", actWho:"", wWho:"", wPage:1, recentDone:{}};
 const chains = new Map(), inflight = new Map();
 
 const $ = s => document.querySelector(s);
@@ -165,6 +165,15 @@ function isFolded(d, p){
   const k = d.id + ":" + p.id;
   return k in ui.fold ? ui.fold[k] : p.steps.every(s => isDone(stateOf(d, s.id)));
 }
+function agItem(d, s, box, title){
+  const i = info(d, s.id), st = stateOf(d, s.id), k = d.id + ":" + box + ":" + s.id;
+  const det = [];
+  if (st !== "open" && i.d) det.push(LABEL[st] + " sinds " + fmtDate(i.d) + (i.by ? " · " + esc(i.by) : ""));
+  if (i.w) det.push("Bij " + esc(i.w) + (i.wd ? " · afgesproken " + fmtDate(i.wd) : ""));
+  if (i.n) det.push("Notitie: " + esc(i.n));
+  if (s.hint) det.push(esc(s.hint));
+  return `<li><details class="ag-item" data-ag="${esc(k)}"${ui.agOpen[k] ? " open" : ""}><summary><span class="ag-t">${title}</span><span class="ag-st s-${st}">${LABEL[st]}</span></summary><div class="ag-det">${det.map(x => `<span>${x}</span>`).join("")}<button type="button" class="linkbtn" data-gostep="${esc(s.id)}">Toon stap</button></div></details></li>`;
+}
 function peopleHtml(d){
   const p = [];
   if (d.bewindvoerder) p.push("BW " + esc(d.bewindvoerder));
@@ -215,17 +224,27 @@ function renderSummary(){
       <span class="at-act" role="cell"><button type="button" class="at-link" data-open="${esc(r.d.id)}">${esc(r.s.name)}</button></span>
       <span class="at-cli" role="cell"><button type="button" class="at-link" data-open="${esc(r.d.id)}">${esc(r.d.naam || "Naamloos dossier")}</button></span>
       <span class="at-st" role="cell">${done ? `<span class="chip ok">Klaar</span>` : `<button type="button" class="chip at-toggle${r.st === "bezig" ? " soon" : ""}" data-toggle="${esc(r.d.id)}" data-step="${esc(r.s.id)}" title="Klik om te wisselen tussen Open en Bezig" aria-label="${label}: ${LABEL[r.st]}. Klik om te wisselen">${LABEL[r.st]}</button>`}</span>
+      <span class="at-date" role="cell">${r.i.wd ? fmtDate(r.i.wd) : ""}</span>
     </div>`;
   };
-  const body = [...groups.keys()].sort().map(k => {
-    const items = groups.get(k).sort((a, b) => a.i.w.localeCompare(b.i.w, "nl") || String(a.i.wd).localeCompare(String(b.i.wd)));
-    const n = items.filter(r => r.st !== "klaar").length;
+  const keys = [...groups.keys()].sort();
+  const flat = keys.flatMap(k => groups.get(k).sort((a, b) => a.i.w.localeCompare(b.i.w, "nl") || String(a.i.wd).localeCompare(String(b.i.wd))).map(r => ({k, r})));
+  const PER = 10, pages = Math.max(1, Math.ceil(flat.length / PER));
+  ui.wPage = Math.min(Math.max(1, ui.wPage || 1), pages);
+  const groupHead = k => {
+    const items = groups.get(k), n = items.filter(r => r.st !== "klaar").length;
     const label = k === "zz" ? "Zonder datum" : "Overleg " + new Date(items[0].i.wd).toLocaleDateString("nl-NL", {weekday: "long", day: "numeric", month: "long", year: "numeric"});
-    return `<div class="at-group" role="row"><span role="cell">${label} <span class="count">${n} open</span></span></div>` + items.map(rowHtml).join("");
+    return `<div class="at-group" role="row"><span role="cell">${label} <span class="count">${n} open</span></span></div>`;
+  };
+  let lastK = null;
+  const body = flat.slice((ui.wPage - 1) * PER, ui.wPage * PER).map(({k, r}) => {
+    const head = k !== lastK ? groupHead(k) : ""; lastK = k;
+    return head + rowHtml(r);
   }).join("");
+  const pager = pages > 1 ? `<nav class="pager" aria-label="Pagina's"><button type="button" class="btn sm" data-wpage="${ui.wPage - 1}"${ui.wPage === 1 ? " disabled" : ""}>‹ Vorige</button>${Array.from({length: pages}, (_, i) => i + 1).map(p => `<button type="button" class="btn sm${p === ui.wPage ? " on" : ""}" data-wpage="${p}" aria-current="${p === ui.wPage ? "page" : "false"}">${p}</button>`).join("")}<button type="button" class="btn sm" data-wpage="${ui.wPage + 1}"${ui.wPage === pages ? " disabled" : ""}>Volgende ›</button><span class="pager-info">${(ui.wPage - 1) * PER + 1}–${Math.min(ui.wPage * PER, flat.length)} van ${flat.length}</span></nav>` : "";
   el.innerHTML = `<div class="dash"><div class="widget">
     <div class="widget-head"><h2>${title} <span class="count">${open}</span></h2><div class="widget-tools"><label class="wlabel" for="w-who">Wie</label><select class="select" id="w-who"><option value="">Iedereen</option>${names.map(n => `<option value="${esc(n)}"${n === who ? " selected" : ""}>${n === me.naam ? esc(n) + " (ik)" : esc(n)}</option>`).join("")}</select><button class="btn" type="button" id="btn-log">Logboek</button></div></div>
-    ${rows.length ? `<div class="atable" role="table" aria-label="${title}"><div class="at-row at-head" role="row"><span role="columnheader"><span class="sr">Klaar</span></span><span role="columnheader">Wie</span><span role="columnheader">Actie</span><span role="columnheader">Cliënt</span><span role="columnheader">Status</span></div>${body}</div>` : `<p class="muted">${empty}</p>`}
+    ${rows.length ? `<div class="atable" role="table" aria-label="${title}"><div class="at-row at-head" role="row"><span role="columnheader"><span class="sr">Klaar</span></span><span role="columnheader">Wie</span><span role="columnheader">Actie</span><span role="columnheader">Cliënt</span><span role="columnheader">Status</span><span role="columnheader">Sinds</span></div>${body}</div>${pager}` : `<p class="muted">${empty}</p>`}
   </div>${teamHtml(who)}</div>`;
 }
 // Teamstand: per medewerker hoeveel acties openstaan en sinds wanneer de oudste ligt. Klik = filter de tabel.
@@ -316,9 +335,9 @@ function dossierHtml(d, meeting){
   const busy = steps().filter(s => stateOf(d, s.id) === "bezig");
   const nx = nextOpen(d);
   const agenda = `<div class="agenda">
-      <div class="ag"><span class="eyebrow">Loopt of wacht op reactie</span>${busy.length ? `<ul>${busy.map(s => `<li><b>${esc(s.name)}</b>${info(d, s.id).n ? `<span>${esc(info(d, s.id).n)}</span>` : info(d, s.id).d ? `<span>Gestart ${fmtDate(info(d, s.id).d)}</span>` : ""}</li>`).join("")}</ul>` : `<p class="none">Niets in behandeling.</p>`}</div>
-      <div class="ag"><span class="eyebrow">Volgende stap</span>${nx ? `<ul><li><b>${esc(nx.name)}</b>${nx.hint ? `<span>${esc(nx.hint)}</span>` : ""}</li></ul>` : `<p class="none">Geen open stappen meer.</p>`}</div>
-      <div class="ag"><span class="eyebrow">Afgesproken acties</span>${openActions(d).length ? `<ul>${openActions(d).map(s => { const i = info(d, s.id); return `<li><b>${esc(i.w)}: ${esc(s.name)}</b><span>${LABEL[stateOf(d, s.id)]}${i.wd ? ` · afgesproken ${fmtDate(i.wd)}` : ""}</span></li>`; }).join("")}</ul>` : `<p class="none">Nog niemand toegewezen. Kies bij een stap wie hem oppakt.</p>`}</div>
+      <div class="ag"><span class="eyebrow">Loopt of wacht op reactie</span>${busy.length ? `<ul>${busy.map(s => agItem(d, s, "b", esc(s.name))).join("")}</ul>` : `<p class="none">Niets in behandeling.</p>`}</div>
+      <div class="ag"><span class="eyebrow">Volgende stap</span>${nx ? `<ul>${agItem(d, nx, "n", esc(nx.name))}</ul>` : `<p class="none">Geen open stappen meer.</p>`}</div>
+      <div class="ag"><span class="eyebrow">Afgesproken acties</span>${openActions(d).length ? `<ul>${openActions(d).map(s => agItem(d, s, "a", `<span class="ag-who">${esc(info(d, s.id).w)}</span> ${esc(s.name)}`)).join("")}</ul>` : `<p class="none">Nog niemand toegewezen.</p>`}</div>
       <div class="ag"><span class="eyebrow">Notitie bij dossier</span>${d.notitie ? `<p style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(d.notitie)}</p>` : `<p class="none">Geen notitie.</p>`}</div>
     </div>`;
 
@@ -332,7 +351,7 @@ function dossierHtml(d, meeting){
       if (st !== "open" && inf.d) meta.push(`${st === "klaar" ? "Klaar" : st === "nvt" ? "N.v.t. sinds" : "Gestart"} ${fmtDate(inf.d)}${inf.by ? ` · ${esc(inf.by)}` : ""}`);
       if (inf.w && inf.wd) meta.push(`Bij ${esc(inf.w)} sinds ${fmtDate(inf.wd)}`);
       deadlinesOf(d).filter(x => x.step.id === s.id).forEach(x => meta.push(deadlineChip(x)));
-      return `<li class="step s-${st}">
+      return `<li class="step s-${st}" id="step-${esc(s.id)}">
         <div><div class="step-name">${esc(s.name)}</div>${s.hint ? `<div class="hint">${esc(s.hint)}</div>` : ""}<div class="meta">${meta.join(" ")}</div></div>
         <div class="seg" role="group" aria-label="Status ${esc(s.name)}">${STATES.map(v => `<button type="button" data-set="${esc(s.id)}" data-val="${v}" aria-pressed="${st === v}">${LABEL[v]}</button>`).join("")}</div>
         <div class="step-foot">${whoSelect(d, s)}<input class="input note" id="note-${esc(s.id)}" data-note="${esc(s.id)}" value="${esc(inf.n)}" placeholder="Notitie, bijv. aangeschreven, wacht op reactie" aria-label="Notitie bij ${esc(s.name)}"></div>
@@ -550,7 +569,16 @@ document.addEventListener("click", async e => {
   if (t.id === "btn-pw"){ openSheet({mode: "pw"}); return; }
   if ("retry" in ds){ dbState = "loading"; renderAll(); loadAll(); return; }
   if (ds.open){ const back = !!(ui.sheet && ui.sheet.mode === "actions"); openSheet({mode: "dossier", id: ds.open, back}); return; }
-  if ("teamwho" in ds){ ui.wWho = ds.teamwho; saveWho(ds.teamwho); renderSummary(); return; }
+  if ("teamwho" in ds){ ui.wWho = ds.teamwho; ui.wPage = 1; saveWho(ds.teamwho); renderSummary(); return; }
+  if (ds.wpage){ ui.wPage = +ds.wpage; renderSummary(); return; }
+  if (ds.gostep && d){
+    const p = plan.phases.find(x => x.steps.some(st => st.id === ds.gostep));
+    if (p) ui.fold[d.id + ":" + p.id] = false;
+    renderSheet(true);
+    const el = document.getElementById("step-" + ds.gostep);
+    if (el){ el.scrollIntoView({behavior: "smooth", block: "center"}); el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 1600); }
+    return;
+  }
   if (ds.toggle){ const dd = dossiers.find(x => x.id === ds.toggle); if (dd) setStep(dd.id, ds.step, stateOf(dd, ds.step) === "bezig" ? "open" : "bezig"); return; }
   if (ds.done){ const dd = dossiers.find(x => x.id === ds.done); if (dd && stateOf(dd, ds.step) !== "klaar"){ setStep(dd.id, ds.step, "klaar"); toast("Op klaar gezet: " + stepName(ds.step)); } return; }
   if ("backacts" in ds){ openSheet({mode: "actions"}); loadActLog(); return; }
@@ -593,12 +621,16 @@ function navMeeting(dir){
   const s = ui.sheet; const n = s.idx + dir; if (n < 0 || n >= s.ids.length) return;
   s.idx = n; $("#sheet").scrollTop = 0; renderSheet(true);
 }
+document.addEventListener("toggle", e => {
+  const t = e.target;
+  if (t.dataset && t.dataset.ag){ if (t.open) ui.agOpen[t.dataset.ag] = true; else delete ui.agOpen[t.dataset.ag]; }
+}, true);
 document.addEventListener("change", e => {
   const t = e.target, d = sheetDossier();
   if (t.id === "f-bw"){ ui.bw = t.value; renderBoard(); return; }
   if (t.id === "f-arch"){ ui.archived = t.checked; renderBoard(); return; }
   if (t.id === "act-who"){ ui.actWho = t.value; renderSheet(true); return; }
-  if (t.id === "w-who"){ ui.wWho = t.value; saveWho(t.value); renderSummary(); return; }
+  if (t.id === "w-who"){ ui.wWho = t.value; ui.wPage = 1; saveWho(t.value); renderSummary(); return; }
   if (t.dataset.check){
     const dd = dossiers.find(x => x.id === t.dataset.check), step = t.dataset.step, k = t.dataset.check + ":" + step;
     if (!dd) return;
