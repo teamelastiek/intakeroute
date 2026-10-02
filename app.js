@@ -2,56 +2,33 @@
 
 const DEFAULT_PLAN = {phases:[
   {id:"beschikking", name:"Beschikking en dossier", steps:[
-    {id:"beschikking", name:"Beschikking ontvangen van de rechtbank", hint:"Datum van de beschikking vastgelegd; hier start de termijn voor de boedelbeschrijving"},
-    {id:"beschikking-check", name:"Beschikking gecontroleerd", hint:"Juiste gegevens, omvang van het bewind, eventueel mentorschap of curatele"},
-    {id:"ccbr", name:"Inschrijving in het curatele- en bewindregister gecontroleerd"},
-    {id:"onview", name:"Dossier aangemaakt in OnView", hint:"Cliëntgegevens, beschikking en contactpersonen ingevoerd"},
-    {id:"intake-gepland", name:"Intakegesprek gepland", hint:"Cliënt en eventueel netwerk of verwijzer geïnformeerd"}
+    {id:"beschikking", name:"Beschikking ontvangen en gecontroleerd", hint:"Juiste gegevens en omvang van het bewind; inschrijving in het curatele- en bewindregister gecontroleerd"},
+    {id:"onview", name:"Dossier aangemaakt in OnView", hint:"Cliëntgegevens, beschikking en contactpersonen ingevoerd"}
   ]},
   {id:"intake", name:"Intake met cliënt", steps:[
     {id:"intake", name:"Intakegesprek gevoerd", hint:"Thuisbezoek of op kantoor"},
-    {id:"overeenkomst", name:"Cliëntovereenkomst en huisregels getekend"},
-    {id:"machtigingen", name:"Machtigingen geregeld", hint:"Onder meer DigiD-machtiging en volmachten"},
-    {id:"documenten", name:"Documenten verzameld", hint:"ID, loonstroken, huurcontract, polissen, brieven van schuldeisers, bankafschriften"},
-    {id:"passen", name:"Oude bankpassen en toegang internetbankieren ingeleverd of geblokkeerd"}
+    {id:"documenten", name:"Overeenkomst, machtigingen en documenten rond", hint:"Cliëntovereenkomst getekend, DigiD-machtiging en volmachten geregeld, documenten binnen, oude bankpassen ingeleverd"}
   ]},
   {id:"rekeningen", name:"Rekeningen", steps:[
-    {id:"banken", name:"Bewind gemeld bij alle banken", hint:"Bestaande rekeningen onder bewind geplaatst"},
-    {id:"beheerrekening", name:"Beheerrekening geopend"},
-    {id:"leefgeldrekening", name:"Leefgeldrekening geopend en pas bij cliënt"},
-    {id:"saldi", name:"Saldi per datum van de beschikking opgevraagd", hint:"Nodig voor de boedelbeschrijving"}
+    {id:"beheerrekening", name:"Beheer- en leefgeldrekening geopend", hint:"Bewind gemeld bij alle banken; leefgeldpas bij cliënt"},
+    {id:"saldi", name:"Saldi per beschikkingsdatum binnen", hint:"Nodig voor de boedelbeschrijving"}
   ]},
   {id:"inkomsten", name:"Inkomsten omleggen", steps:[
-    {id:"inkomsten-aangeschreven", name:"Inkomstenbronnen aangeschreven", hint:"Werkgever, UWV, SVB of gemeente"},
-    {id:"inkomsten-ontvangen", name:"Eerste inkomsten ontvangen op de beheerrekening"},
-    {id:"toeslagen", name:"Toeslagen gecontroleerd en omgezet", hint:"Zorgtoeslag, huurtoeslag, kindgebonden budget"},
-    {id:"belastingdienst", name:"Belastingdienst geregeld", hint:"Machtiging, openstaande aangiften en voorlopige aanslag"}
+    {id:"inkomsten-ontvangen", name:"Inkomsten komen binnen op de beheerrekening", hint:"Werkgever, UWV, SVB of gemeente aangeschreven en omgezet"},
+    {id:"toeslagen", name:"Toeslagen en Belastingdienst geregeld", hint:"Zorgtoeslag, huurtoeslag, kindgebonden budget; machtiging, aangiften en voorlopige aanslag"}
   ]},
   {id:"vastelasten", name:"Vaste lasten en post", steps:[
     {id:"post", name:"Post omgeleid naar kantoor"},
-    {id:"verhuurder", name:"Verhuurder of hypotheekverstrekker aangeschreven"},
-    {id:"zorgverzekeraar", name:"Zorgverzekeraar aangeschreven"},
-    {id:"nutsvoorzieningen", name:"Energie, water, internet en telefoon aangeschreven"},
-    {id:"gemeente", name:"Gemeentelijke belastingen en waterschap aangeschreven", hint:"Kwijtschelding aangevraagd waar dat kan"},
-    {id:"verzekeringen", name:"Overige verzekeringen en abonnementen gecontroleerd"}
+    {id:"verhuurder", name:"Vaste lasten aangeschreven", hint:"Huur of hypotheek, zorgverzekeraar, energie en water, gemeente en waterschap, overige verzekeringen"}
   ]},
   {id:"schulden", name:"Schulden en boedel", steps:[
-    {id:"schuldeisers", name:"Schuldeisers aangeschreven", hint:"Bewind gemeld, opgave van vordering gevraagd"},
-    {id:"schuldenoverzicht", name:"Schuldenoverzicht compleet"},
-    {id:"beslagvrije-voet", name:"Beslagvrije voet gecontroleerd", hint:"Alleen bij beslag"},
-    {id:"boedel-opgesteld", name:"Boedelbeschrijving opgesteld"},
-    {id:"boedel", name:"Boedelbeschrijving ingediend bij de rechtbank", hint:"Binnen drie maanden na de beschikking", deadlineDays:90},
+    {id:"schuldenoverzicht", name:"Schuldenoverzicht compleet", hint:"Schuldeisers aangeschreven; beslagvrije voet gecontroleerd bij beslag"},
+    {id:"boedel", name:"Boedelbeschrijving ingediend bij de rechtbank"},
     {id:"plan-van-aanpak", name:"Plan van aanpak opgesteld", hint:"Doelen voor de cliënt, zoals stabilisatie of schuldhulpverlening"}
   ]},
   {id:"budgetplan", name:"Budgetplan", steps:[
-    {id:"concept", name:"Conceptbudgetplan opgesteld"},
-    {id:"besproken", name:"Budgetplan besproken en getekend door cliënt"},
-    {id:"reserveringen", name:"Reserveringen ingericht", hint:"Bijvoorbeeld eindafrekening energie en jaarlijkse kosten"},
-    {id:"betalingen", name:"Vaste lasten ingericht in OnView"},
-    {id:"leefgeld", name:"Leefgeld afgesproken en ingepland"},
-    {id:"shv", name:"Aangemeld voor schuldhulpverlening", hint:"Alleen als dat past bij het plan van aanpak"},
-    {id:"eerste-maand", name:"Eerste maand gedraaid en gecontroleerd"},
-    {id:"draait", name:"Budgetplan draait, dossier naar regulier beheer"}
+    {id:"besproken", name:"Budgetplan getekend door cliënt", hint:"Conceptbudgetplan opgesteld en besproken"},
+    {id:"draait", name:"Budgetplan draait, eerste maand gecontroleerd", hint:"Reserveringen, vaste lasten en leefgeld ingericht in OnView; zo nodig aangemeld voor schuldhulpverlening"}
   ]}
 ]};
 
@@ -595,9 +572,9 @@ document.addEventListener("click", async e => {
     const ex = {dossiernummer: "VOORBEELD", naam: "Voorbeeldcliënt (mag weg)", bewindvoerder: "Bewindvoerder A", assistent: "Assistent B", example: true, notitie: "Voorbeelddossier om het bord te laten zien. Verwijder het onderaan dit dossier.", status: {}};
     const b = new Date(); b.setDate(b.getDate() - 70); ex.beschikking = b.toISOString().slice(0, 10);
     const all = steps(), iso = new Date().toISOString();
-    all.slice(0, 16).forEach(s => ex.status[s.id] = {s: "klaar", d: iso, by: me.naam});
-    if (all[16]) ex.status[all[16].id] = {s: "nvt", d: iso, by: me.naam};
-    all.slice(17, 20).forEach(s => ex.status[s.id] = {s: "bezig", d: iso, by: me.naam, n: "Aangeschreven, wacht op reactie"});
+    const n = Math.floor(all.length / 2);
+    all.slice(0, n).forEach(s => ex.status[s.id] = {s: "klaar", d: iso, by: me.naam});
+    all.slice(n, n + 2).forEach(s => ex.status[s.id] = {s: "bezig", d: iso, by: me.naam, n: "Aangeschreven, wacht op reactie"});
     if (await createDossier(ex)) toast("Voorbeelddossier toegevoegd.");
     return;
   }
