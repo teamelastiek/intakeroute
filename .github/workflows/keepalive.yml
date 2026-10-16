@@ -1,10 +1,11 @@
 # Houdt het gratis Supabase-project wakker: dat pauzeert na 7 dagen zonder activiteit.
-# Elke 3 dagen één klein verzoek aan de database. Er worden geen gegevens gelezen.
+# Twee keer per dag een kleine schrijfactie in een hulptabel (hartslag); er worden geen cliëntgegevens gelezen.
+# Eerder was eens per 3 dagen "select 1" niet genoeg: dat telde niet als activiteit en het project pauzeerde toch.
 name: Supabase wakker houden
 
 on:
   schedule:
-    - cron: "17 6 */3 * *"
+    - cron: "17 5,17 * * *"
   workflow_dispatch:
 
 permissions:
